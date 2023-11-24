@@ -4,7 +4,7 @@
 
 using namespace std;
 
-void parseArgument(int index, char* arguments[], int& params[4]){
+void parseArgument(int index, char* arguments[], int* params){
 	switch (arguments[index][1]){
 		case 'q': // queue size
 			params[0] = stoi(arguments[index+1]);
@@ -26,7 +26,7 @@ int main(int argc, char* argv[]){
 	int parameters[4];
 	for (int i=0; i<argc; i++){
 		if (argv[i][0] == '-')
-			parseArgument(i, argv, parameters);
+			parseArgument(i, argv, &parameters[0]);
 	}
 	for (int j=0; j<4; j++){
 		cout << parameters[j] << endl;
