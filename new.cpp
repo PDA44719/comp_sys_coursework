@@ -55,7 +55,7 @@ void process_job(int* queue, int queue_size, int consumer_id,
 	while(true){
 		bool job_retrieved = jobs_in_queue.try_acquire_for(chrono::seconds(10));
 		if (!job_retrieved){
-			cout << "Consumer " << consumer_id < " quit after no jobs appeard in 10 seconds" << endl;
+			cout << "Consumer " << consumer_id << " quit after no jobs appeard in 10 seconds" << endl;
 			return;
 		}
 		int* job_value = new int;
