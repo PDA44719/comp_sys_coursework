@@ -5,6 +5,7 @@
 #include<ctime>
 #include<semaphore>
 #include<chrono>
+#include<thread>
 
 using namespace std;
 
@@ -26,7 +27,7 @@ void parseArgument(int index, char* arguments[], int* params){
 }
 
 void produce_job(int* queue_ptr, int queue_size, int max_jobs, int producer_id,
-				 binary_semaphore& cs, counting_semaphore<100>& empty_spots, counting_semaphore<100>& jobs_in_queue){
+				 counting_semaphore<1>& cs, counting_semaphore<100>& empty_spots, counting_semaphore<100>& jobs_in_queue){
 	for (int i=0; i<max_jobs; i++){
 		bool job_placed = empty_spots.try_acquire_for(chrono::seconds(10));
 		if (!job_placed){
@@ -35,7 +36,11 @@ void produce_job(int* queue_ptr, int queue_size, int max_jobs, int producer_id,
 		}
 		int* job_value = new int;
 		srand((int) time(0)); // Generate a seed
-		cs.acquire();
+		cout << "Made it here" << endl;
+		bool critical_section_entry = cs.try_acquire_for(chrono::seconds(10));
+		if (!critical_section_entry){
+			cout << "Producer " << producer_id << " quitting" << endl;
+		}
 		for (int i=0; i<queue_size; i++){
 			if (queue_ptr[i] == 0){
 				*job_value = rand()%10 + 1;
@@ -51,7 +56,7 @@ void produce_job(int* queue_ptr, int queue_size, int max_jobs, int producer_id,
 }
 
 void process_job(int* queue, int queue_size, int consumer_id, 
-				 binary_semaphore& cs, counting_semaphore<100>& empty_spots, counting_semaphore<100>& jobs_in_queue){
+				 counting_semaphore<1>& cs, counting_semaphore<100>& empty_spots, counting_semaphore<100>& jobs_in_queue){
 	while(true){
 		bool job_retrieved = jobs_in_queue.try_acquire_for(chrono::seconds(10));
 		if (!job_retrieved){
@@ -83,15 +88,29 @@ int main(int argc, char* argv[]){
 		if (argv[i][0] == '-')
 			parseArgument(i, argv, &parameters[0]);
 	}
-	binary_semaphore criticalSection(1);
-	counting_semaphore<100> numberOfEmptySpots(parameters[0]);
+	counting_semaphore<1> criticalSection(1);
+	counting_semaphore<100> numberOfEmptySpots(10);
 	counting_semaphore<100> numberOfJobsInTheQueue(0);
-	int queue[100] = {0}; // 100 would be the max size of the buffer
-	produce_job(queue, parameters[0]);
-	cout << "First job finished" << endl;
-	cout << "Second job starting" << endl;
-	produce_job(queue, queue_size);
-	for (int i=0; i<queue_size; i++)
-		cout << queue[i] << endl;
+	int queue[10] = {0}; // 100 would be the max size of the buffer
+
+	// Generate all the threads
+	thread producers[10];
+	thread consumers[10];
+	for (int i=0; i<10; i++){
+		producers[i] = thread(produce_job, &queue[0], 10, 10, i, ref(criticalSection), ref(numberOfEmptySpots), ref(numberOfJobsInTheQueue));
+	}
+
+	for (int i=0; i<10; i++){
+		consumers[i] = thread(process_job, &queue[0], 10, i, ref(criticalSection), ref(numberOfEmptySpots), ref(numberOfJobsInTheQueue));
+	}
+
+	for (int i=0; i<10; i++){
+		producers[i].join();
+	}
+
+	for (int i=0; i<10; i++){
+		consumers[i].join();
+	}
+
 	return 0;
 }
