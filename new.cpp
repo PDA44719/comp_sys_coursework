@@ -27,7 +27,8 @@ void parseArgument(int index, char* arguments[], int* params){
 }
 
 void produce_job(int* queue_ptr, int queue_size, int max_jobs, int producer_id,
-				 counting_semaphore<1>& cs, counting_semaphore<100>& empty_spots, counting_semaphore<100>& jobs_in_queue){
+				 binary_semaphore& cs, counting_semaphore<100>& empty_spots, counting_semaphore<100>& jobs_in_queue){
+	srand((int) time(0) + producer_id); // Generate a seed
 	for (int i=0; i<max_jobs; i++){
 		bool job_placed = empty_spots.try_acquire_for(chrono::seconds(10));
 		if (!job_placed){
@@ -35,17 +36,17 @@ void produce_job(int* queue_ptr, int queue_size, int max_jobs, int producer_id,
 			return;
 		}
 		int* job_value = new int;
-		srand((int) time(0)); // Generate a seed
-		cout << "Made it here" << endl;
+		cout << "Made it here " << endl;
 		bool critical_section_entry = cs.try_acquire_for(chrono::seconds(10));
 		if (!critical_section_entry){
 			cout << "Producer " << producer_id << " quitting" << endl;
+			return;
 		}
 		for (int i=0; i<queue_size; i++){
 			if (queue_ptr[i] == 0){
 				*job_value = rand()%10 + 1;
 				queue_ptr[i] = *job_value;
-				return;
+				break;
 			}
 		}
 		cs.release(); // Release critical section semaphore
@@ -56,7 +57,7 @@ void produce_job(int* queue_ptr, int queue_size, int max_jobs, int producer_id,
 }
 
 void process_job(int* queue, int queue_size, int consumer_id, 
-				 counting_semaphore<1>& cs, counting_semaphore<100>& empty_spots, counting_semaphore<100>& jobs_in_queue){
+				 binary_semaphore& cs, counting_semaphore<100>& empty_spots, counting_semaphore<100>& jobs_in_queue){
 	while(true){
 		bool job_retrieved = jobs_in_queue.try_acquire_for(chrono::seconds(10));
 		if (!job_retrieved){
@@ -69,7 +70,7 @@ void process_job(int* queue, int queue_size, int consumer_id,
 			if (queue[i] != 0){
 				*job_value = queue[i];
 				queue[i] = 0;
-				return;
+				break;
 			}
 		}
 		cs.release();
@@ -88,7 +89,7 @@ int main(int argc, char* argv[]){
 		if (argv[i][0] == '-')
 			parseArgument(i, argv, &parameters[0]);
 	}
-	counting_semaphore<1> criticalSection(1);
+	binary_semaphore criticalSection(1);
 	counting_semaphore<100> numberOfEmptySpots(10);
 	counting_semaphore<100> numberOfJobsInTheQueue(0);
 	int queue[10] = {0}; // 100 would be the max size of the buffer
