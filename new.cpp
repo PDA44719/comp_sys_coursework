@@ -17,7 +17,7 @@ class CircularQueue{
 		 * 
 		 * @return int: the value of the retrieved job 
 		 */
-        int retrievejob(){
+        int retrieveJob(){
 			// Store the value from the front and set it to 0
             int tmp = *front;
             *front = 0;
@@ -70,7 +70,7 @@ class CircularQueue{
  * @param arguments: the array containing the command line arguments 
  * @param params: the array where the 4 parameters will be stored
  */
-void parseArgument(int index, char* arguments[], int* params){
+void parse_argument(int index, char* arguments[], int* params){
 	switch (arguments[index][1]){
 		case 'q': // queue size
 			params[0] = stoi(arguments[index+1]); // Convert sting to int
@@ -111,26 +111,32 @@ void error_message(){
 void produce_job(CircularQueue& q, int max_jobs, int producer_id, binary_semaphore& cs,
 				 counting_semaphore<MAX_SIZE>& empty_spots, counting_semaphore<MAX_SIZE>& jobs_in_queue){
 
-	srand((int) time(0) + producer_id); // Generate a seed for the random number generation
-	for (int i=0; i<max_jobs; i++){
-		// Attempt to acquire the semaphore for 10 seconds. Exit if not acquired
-		bool semaphore_acquired = empty_spots.try_acquire_for(chrono::seconds(10));
-		if (!semaphore_acquired){
-			printf("Producer %d quit after a spot did not become available for 10 seconds\n", producer_id);
-			return;
-		}
-		int job_value = rand()%10 + 1; // Generate random job
-		
-		// Acquire critical section semaphore, place the job inside the queue and release it
-		cs.acquire();
-		q.placeJob(job_value);
-		cs.release(); 
+	try {
+		srand((int) time(0) + producer_id); // Generate a seed for the random number generation
+		for (int i=0; i<max_jobs; i++){
+			// Attempt to acquire the semaphore for 10 seconds. Exit if not acquired
+			bool semaphore_acquired = empty_spots.try_acquire_for(chrono::seconds(10));
+			if (!semaphore_acquired){
+				printf("Producer %d quit after a spot did not become available for 10 seconds\n", producer_id);
+				return;
+			}
+			int job_value = rand()%10 + 1; // Generate random job
+			
+			// Acquire critical section semaphore, place the job inside the queue and release it
+			cs.acquire();
+			q.placeJob(job_value);
+			cs.release(); 
 
-		jobs_in_queue.release(); // Increase the jobs in queue semaphore by 1
-		//q.printQueue();
-		printf("Producer %d placed a job of value %d\n", producer_id, job_value);
+			jobs_in_queue.release(); // Increase the jobs in queue semaphore by 1
+			//q.printQueue();
+			printf("Producer %d placed a job of value %d\n", producer_id, job_value);
+		}
+		printf("Producer %d quit after submitting all %d jobs.\n", producer_id, max_jobs);
 	}
-	printf("Producer %d quit after submitting all %d jobs.\n", producer_id, max_jobs);
+	catch (const exception& e) {
+		printf("An error ocurred in producer %d. Producer terminated.", producer_id);
+		return;
+	}
 }
 
 /**
@@ -146,26 +152,32 @@ void produce_job(CircularQueue& q, int max_jobs, int producer_id, binary_semapho
 void process_job(CircularQueue& q, int consumer_id, binary_semaphore& cs,
 				 counting_semaphore<MAX_SIZE>& empty_spots, counting_semaphore<MAX_SIZE>& jobs_in_queue){
 
-	while(true){
-		// Attempt to acquire the semaphore for 10 seconds. Exit if not acquired
-		bool job_retrieved = jobs_in_queue.try_acquire_for(chrono::seconds(10));
-		if (!job_retrieved){
-			printf("Consumer %d quit after no jobs appeared in 10 seconds.\n", consumer_id);
-			return;
+	try{
+		while(true){
+			// Attempt to acquire the semaphore for 10 seconds. Exit if not acquired
+			bool job_retrieved = jobs_in_queue.try_acquire_for(chrono::seconds(10));
+			if (!job_retrieved){
+				printf("Consumer %d quit after no jobs appeared in 10 seconds.\n", consumer_id);
+				return;
+			}
+
+			// Acquire critical section semaphore, retrieve job and release it
+			cs.acquire();
+			int job_value = q.retrieveJob();
+			cs.release();
+
+			empty_spots.release(); // Increase the empty spots semaphore by 1
+			printf("Consumer %d retrieved a job of value %d.\n", consumer_id, job_value);
+			//q.printQueue();
+
+			// Process the job
+			this_thread::sleep_for(chrono::seconds(job_value));
+			printf("Consumer %d processed a job of value %d.\n", consumer_id, job_value);
 		}
-
-		// Acquire critical section semaphore, retrieve job and release it
-		cs.acquire();
-		int job_value = q.retrievejob();
-		cs.release();
-
-		empty_spots.release(); // Increase the empty spots semaphore by 1
-		printf("Consumer %d retrieved a job of value %d.\n", consumer_id, job_value);
-		//q.printQueue();
-
-		// Process the job
-		this_thread::sleep_for(chrono::seconds(job_value));
-		printf("Consumer %d processed a job of value %d.\n", consumer_id, job_value);
+	}
+	catch (const exception& e) {
+		printf("An error ocurred in consumer %d. Consumer terminated.", consumer_id);
+		return;
 	}
 }
 
@@ -176,13 +188,13 @@ int main(int argc, char* argv[]){
 	for (int i=0; i<argc; i++){
 		if (argv[i][0] == '-'){
 			try{
-				parseArgument(i, argv, &parameters[0]);
+				parse_argument(i, argv, &parameters[0]);
 			}
 
 			// Exit the program if there is any exception when parsing the arguments
 			catch (const exception& e) { 
 				error_message();
-				exit(1);
+				return 1;
 			}
 		}
 
@@ -192,7 +204,7 @@ int main(int argc, char* argv[]){
 	for (int j=0; j<4; j++){
 		if (parameters[j] < 1 || parameters[j] > MAX_SIZE){
 			error_message();
-			exit(1);
+			return 1;
 		}
 	}
 
@@ -209,8 +221,8 @@ int main(int argc, char* argv[]){
 			producers[i] = thread(produce_job, ref(q), parameters[1], i, ref(criticalSection),
 								  ref(numberOfEmptySpots), ref(numberOfJobsInTheQueue));
 		}
-		for (int i=0; i<parameters[3]; i++){
-			consumers[i] = thread(process_job, ref(q), i, ref(criticalSection),
+		for (int j=0; j<parameters[3]; j++){
+			consumers[j] = thread(process_job, ref(q), j, ref(criticalSection),
 								  ref(numberOfEmptySpots), ref(numberOfJobsInTheQueue));
 		}
 	}
@@ -224,8 +236,8 @@ int main(int argc, char* argv[]){
 		for (int i=0; i<parameters[2]; i++){
 			producers[i].join();
 		}
-		for (int i=0; i<parameters[3]; i++){
-			consumers[i].join();
+		for (int j=0; j<parameters[3]; j++){
+			consumers[j].join();
 		}
 	}
 	catch (const exception& e) {
