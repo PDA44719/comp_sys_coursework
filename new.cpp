@@ -204,22 +204,34 @@ int main(int argc, char* argv[]){
 	// Generate all the threads
 	thread producers[MAX_SIZE];
 	thread consumers[MAX_SIZE];
-	for (int i=0; i<parameters[2]; i++){
-		producers[i] = thread(produce_job, ref(q), parameters[1], i, ref(criticalSection),
-							  ref(numberOfEmptySpots), ref(numberOfJobsInTheQueue));
+	try{
+		for (int i=0; i<parameters[2]; i++){
+			producers[i] = thread(produce_job, ref(q), parameters[1], i, ref(criticalSection),
+								  ref(numberOfEmptySpots), ref(numberOfJobsInTheQueue));
+		}
+		for (int i=0; i<parameters[3]; i++){
+			consumers[i] = thread(process_job, ref(q), i, ref(criticalSection),
+								  ref(numberOfEmptySpots), ref(numberOfJobsInTheQueue));
+		}
 	}
-	for (int i=0; i<parameters[3]; i++){
-		consumers[i] = thread(process_job, ref(q), i, ref(criticalSection),
-							  ref(numberOfEmptySpots), ref(numberOfJobsInTheQueue));
+	catch (const exception& e){
+		cerr << "Error occurred when creating the threads\n";
+		exit(1);
 	}
 
 	// Join the threads
-	for (int i=0; i<parameters[2]; i++){
-		producers[i].join();
+	try{
+		for (int i=0; i<parameters[2]; i++){
+			producers[i].join();
+		}
+		for (int i=0; i<parameters[3]; i++){
+			consumers[i].join();
+		}
 	}
-	for (int i=0; i<parameters[3]; i++){
-		consumers[i].join();
+	catch (const exception& e) {
+		cerr << "Error occurred when joining the threads\n";
+		exit(1);
 	}
-
+	
 	return 0;
 }
